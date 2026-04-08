@@ -1,16 +1,16 @@
 main: ${spigot.main}
 name: ${project.name}
 version: ${project.version}
-api-version: "1.13"
+api-version: "1.21"
 description: "${project.description}"
 folia-supported: true
 authors:
   - mfnalex
   - JEFF Media GbR
+  - SamsSide
 website: ${project.url}
 prefix: ${spigot.prefix}
 database: false
-loadbefore: [InvUnload]
 softdepend: [CrackShot,InventoryPages,Minepacks,PlaceholderAPI,AdvancedChests,ShulkerPacks]
 commands:
   sort:

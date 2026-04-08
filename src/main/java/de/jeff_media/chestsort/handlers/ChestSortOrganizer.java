@@ -397,19 +397,22 @@ public class ChestSortOrganizer {
             ItemMeta meta = item.getItemMeta();
             if (meta instanceof PotionMeta) {
                 PotionMeta potionMeta = (PotionMeta) meta;
-                // Only continue if Method "getBasePotionData" exists
-                Class<? extends PotionMeta> potionMetaClass = potionMeta.getClass();
+                // Try the new 1.20.5+ API (getBasePotionType) first, fall back to the old one
                 try {
-                    if (potionMeta.getBasePotionData() != null) {
+                    org.bukkit.potion.PotionType potionType = potionMeta.getBasePotionType();
+                    if (potionType != null && potionType.getPotionEffects() != null && !potionType.getPotionEffects().isEmpty()) {
+                        potionEffect = "|" + potionType.getPotionEffects().get(0).getType().getName();
+                    }
+                } catch (Throwable ignored) {
+                    // Fall back to pre-1.20.5 API
+                    try {
                         PotionData pdata = potionMeta.getBasePotionData();
                         if (pdata != null && pdata.getType() != null && pdata.getType().getEffectType() != null) {
                             potionEffect = "|" + pdata.getType().getEffectType().getName();
                         }
+                    } catch (Throwable ignored2) {
                     }
-                } catch (Throwable ignored) {
                 }
-
-                // potionEffects = potionEffects.substring(0, potionEffects.length()-1);
             }
         }
 

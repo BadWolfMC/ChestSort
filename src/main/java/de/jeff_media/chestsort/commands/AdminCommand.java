@@ -1,8 +1,9 @@
 package de.jeff_media.chestsort.commands;
 
 import de.jeff_media.chestsort.ChestSortPlugin;
-import com.jeff_media.jefflib.NBTAPI;
 import org.bukkit.Bukkit;
+import org.bukkit.NamespacedKey;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -73,7 +74,7 @@ public class AdminCommand implements CommandExecutor {
         };
 
         for(String nbtTag : tags) {
-            NBTAPI.removeNBT(player,nbtTag);
+            player.getPersistentDataContainer().remove(new NamespacedKey(plugin, nbtTag));
         }
 
         sender.sendMessage("Reset hotkey settings for player "+player.getName());

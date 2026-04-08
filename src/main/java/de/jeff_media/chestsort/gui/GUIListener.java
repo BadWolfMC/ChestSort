@@ -1,6 +1,5 @@
 package de.jeff_media.chestsort.gui;
 
-import com.jeff_media.morepersistentdatatypes.DataType;
 import de.jeff_media.chestsort.ChestSortPlugin;
 import de.jeff_media.chestsort.data.PlayerSetting;
 import de.jeff_media.chestsort.gui.tracker.CustomGUITracker;
@@ -38,8 +37,8 @@ public class GUIListener implements Listener {
         Player player = (Player) event.getWhoClicked();
         PlayerSetting setting = main.getPlayerSetting(player);
         String function = Objects.requireNonNull(clicked.getItemMeta()).getPersistentDataContainer().getOrDefault(new NamespacedKey(main,"function"), PersistentDataType.STRING,"");
-        List<String> userCommands = clicked.getItemMeta().getPersistentDataContainer().getOrDefault(new NamespacedKey(main,"user-commands"), DataType.asList(DataType.STRING), new ArrayList<>());
-        List<String> adminCommands = clicked.getItemMeta().getPersistentDataContainer().getOrDefault(new NamespacedKey(main,"admin-commands"), DataType.asList(DataType.STRING), new ArrayList<>());
+        List<String> userCommands = clicked.getItemMeta().getPersistentDataContainer().getOrDefault(new NamespacedKey(main,"user-commands"), PersistentDataType.LIST.strings(), new ArrayList<>());
+        List<String> adminCommands = clicked.getItemMeta().getPersistentDataContainer().getOrDefault(new NamespacedKey(main,"admin-commands"), PersistentDataType.LIST.strings(), new ArrayList<>());
 
         executeCommands(player, player, userCommands);
         executeCommands(player, Bukkit.getConsoleSender(), adminCommands);

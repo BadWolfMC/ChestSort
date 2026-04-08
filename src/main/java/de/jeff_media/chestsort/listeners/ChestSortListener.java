@@ -1,6 +1,5 @@
 package de.jeff_media.chestsort.listeners;
 
-import com.jeff_media.jefflib.ProtectionUtils;
 import de.jeff_media.chestsort.ChestSortPlugin;
 import de.jeff_media.chestsort.api.ChestSortEvent;
 import de.jeff_media.chestsort.api.ChestSortPostSortEvent;
@@ -35,6 +34,7 @@ import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.block.Action;
+import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryOpenEvent;
@@ -164,9 +164,9 @@ public class ChestSortListener implements org.bukkit.event.Listener {
         }
 
         if (plugin.getConfig().getBoolean("mute-protection-plugins")) {
-            if (!ProtectionUtils.canBreak(event.getPlayer(),
-                    clickedBlock.getLocation()/*, plugin.getConfig().getBoolean("mute-protection-plugins")*/)) {
-                //System.out.println("ChestSort: cannot interact!");
+            BlockBreakEvent breakTest = new BlockBreakEvent(clickedBlock, event.getPlayer());
+            Bukkit.getPluginManager().callEvent(breakTest);
+            if (breakTest.isCancelled()) {
                 return;
             }
         }
@@ -372,6 +372,12 @@ public class ChestSortListener implements org.bukkit.event.Listener {
             return;
         }
 
+        // For ender chests, sort the player's actual ender chest inventory directly
+        if (inventory.getType() == InventoryType.ENDER_CHEST) {
+            plugin.getOrganizer().sortInventory(p.getEnderChest());
+            return;
+        }
+
         // Normal container inventories can be sorted completely
         plugin.getOrganizer().sortInventory(inventory);
     }
@@ -573,18 +579,19 @@ public class ChestSortListener implements org.bukkit.event.Listener {
             return;
         }
 
-        // Check if this is an EnderChest (is there a smarter way?)
-        if (!inventory.equals(p.getEnderChest())) {
+        // Check if this is a vanilla EnderChest by inventory type
+        if (inventory.getType() != InventoryType.ENDER_CHEST) {
             return;
         }
 
         if (isReadyToSort(p)) {
 
             // Finally call the Organizer to sort the inventory
+            // Use p.getEnderChest() directly to ensure we sort the actual backing inventory
 
             plugin.getLgr().logSort(p, Logger.SortCause.EC_OPEN);
 
-            plugin.getOrganizer().sortInventory(inventory);
+            plugin.getOrganizer().sortInventory(p.getEnderChest());
         }
     }
 
@@ -638,10 +645,11 @@ public class ChestSortListener implements org.bukkit.event.Listener {
         }
 
 
-        // Possible fix for #57
+        // Possible fix for #57 — but ender chests also have the player as holder, so exclude them
         if (!isAPICall &&
                 (holder != null && holder == p &&
-                        clicked != p.getInventory())) {
+                        clicked != p.getInventory() &&
+                        clicked.getType() != InventoryType.ENDER_CHEST)) {
             return;
         }
 
@@ -824,11 +832,11 @@ public class ChestSortListener implements org.bukkit.event.Listener {
                 advancedChestsHook.isAnAdvancedChest(inventory);
 
         // Possible fix for #57
-        if (holder == null && !view.getTopInventory().equals(player.getEnderChest()) &&
+        if (holder == null && view.getTopInventory().getType() != InventoryType.ENDER_CHEST &&
                 !isAdvancedChest) {
             return;
         }
-        if (holder == player && inventory != player.getInventory()) {
+        if (holder == player && inventory != player.getInventory() && inventory.getType() != InventoryType.ENDER_CHEST) {
             return;
         }
         // End Possible fix for #57
@@ -840,7 +848,7 @@ public class ChestSortListener implements org.bukkit.event.Listener {
                 !inventory.getType().name().equalsIgnoreCase("SHULKER_BOX") &&
                 (holder == null ||
                         !holder.getClass().toString().endsWith(".CraftBarrel")) &&
-                inventory != player.getEnderChest() && !(holder instanceof ISortable)) {
+                inventory.getType() != InventoryType.ENDER_CHEST && !(holder instanceof ISortable)) {
             return;
         }
 

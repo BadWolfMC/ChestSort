@@ -1,22 +1,33 @@
 package de.jeff_media.chestsort.gui;
 
-import com.jeff_media.morepersistentdatatypes.DataType;
+import com.google.gson.JsonParser;
 import de.jeff_media.chestsort.ChestSortPlugin;
 import de.jeff_media.chestsort.enums.Hotkey;
-import com.jeff_media.jefflib.ItemStackUtils;
-import com.jeff_media.jefflib.TextUtils;
 import de.jeff_media.chestsort.gui.tracker.CustomGUITracker;
 import de.jeff_media.chestsort.gui.tracker.CustomGUIType;
+import de.jeff_media.chestsort.utils.Utils;
 import org.bukkit.Bukkit;
+import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.inventory.meta.SkullMeta;
 import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.profile.PlayerProfile;
+import org.bukkit.profile.PlayerTextures;
 
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class NewUI {
 
@@ -30,31 +41,28 @@ public class NewUI {
 
     private ItemStack getItem(int slot) {
         if(conf.isConfigurationSection("slots." + slot)) {
-            return ItemStackUtils.fromConfigurationSection(conf.getConfigurationSection("slots." + slot));
+            return fromConfigurationSection(conf.getConfigurationSection("slots." + slot));
         }
         if(conf.isString("slots." + slot)) {
             String buttonName = conf.getString("slots." + slot);
-            //if(!player.hasPermission("chestsort.hotkey." + buttonName)) {
             Hotkey key = Hotkey.fromPermission(buttonName);
             if(key != null && !Hotkey.fromPermission(buttonName).hasPermission(player)) {
                 buttonName = buttonName + "-nopermission";
             } else {
                 boolean enabled = true;
                 if(key != null) enabled = Hotkey.fromPermission(buttonName).hasEnabled(player);
-                //System.out.println(buttonName + " is enabled: " + enabled);
                 if(key != null) buttonName = buttonName + (enabled ? "-enabled" : "-disabled");
             }
             if(main.isDebug()) System.out.println("Button name: " + buttonName);
-            ItemStack button = ItemStackUtils.fromConfigurationSection(conf.getConfigurationSection("items." + buttonName));
-            //System.out.println(button);
+            ItemStack button = fromConfigurationSection(conf.getConfigurationSection("items." + buttonName));
             if(button.hasItemMeta() && !buttonName.endsWith("-nopermission")) {
                 ItemMeta meta = button.getItemMeta();
                 assert meta != null;
                 meta.getPersistentDataContainer().set(new NamespacedKey(main,"function"),PersistentDataType.STRING, buttonName.split("-")[0]);
                 List<String> userCommands = conf.getStringList("items." + buttonName + ".commands.player");
                 List<String> adminCommands = conf.getStringList("items." + buttonName + ".commands.console");
-                meta.getPersistentDataContainer().set(new NamespacedKey(main,"user-commands"), DataType.asList(DataType.STRING), userCommands);
-                meta.getPersistentDataContainer().set(new NamespacedKey(main,"admin-commands"), DataType.asList(DataType.STRING), adminCommands);
+                meta.getPersistentDataContainer().set(new NamespacedKey(main,"user-commands"), PersistentDataType.LIST.strings(), userCommands);
+                meta.getPersistentDataContainer().set(new NamespacedKey(main,"admin-commands"), PersistentDataType.LIST.strings(), adminCommands);
                 button.setItemMeta(meta);
             }
             return button;
@@ -64,10 +72,8 @@ public class NewUI {
 
     public void showGUI() {
 
-        NewUI gui = new NewUI(player);
-
         int size = conf.getInt("size");
-        String title = TextUtils.format(conf.getString("title"));
+        String title = Utils.formatText(conf.getString("title"));
 
         Inventory inv = Bukkit.createInventory(null, size, title);
 
@@ -79,4 +85,75 @@ public class NewUI {
         CustomGUITracker.open(player, inv, CustomGUIType.NEW);
     }
 
+    private static ItemStack fromConfigurationSection(ConfigurationSection section) {
+        if (section == null) return new ItemStack(Material.STONE);
+
+        Material material;
+        try {
+            material = Material.valueOf(section.getString("material", "STONE").toUpperCase());
+        } catch (IllegalArgumentException e) {
+            material = Material.STONE;
+        }
+
+        int amount = section.getInt("amount", 1);
+        ItemStack item = new ItemStack(material, amount);
+
+        // Apply base64 skull texture before touching ItemMeta for the first time
+        String base64 = section.getString("base64");
+        if (base64 != null && material == Material.PLAYER_HEAD) {
+            try {
+                String decoded = new String(Base64.getDecoder().decode(base64));
+                String url = JsonParser.parseString(decoded)
+                        .getAsJsonObject()
+                        .getAsJsonObject("textures")
+                        .getAsJsonObject("SKIN")
+                        .get("url").getAsString();
+                SkullMeta skullMeta = (SkullMeta) item.getItemMeta();
+                PlayerProfile profile = Bukkit.createPlayerProfile(UUID.randomUUID());
+                PlayerTextures textures = profile.getTextures();
+                textures.setSkin(new URL(url));
+                profile.setTextures(textures);
+                skullMeta.setOwnerProfile(profile);
+                item.setItemMeta(skullMeta);
+            } catch (Exception ignored) {
+                // Invalid base64 or malformed texture JSON — leave as plain head
+            }
+        }
+
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) return item;
+
+        String displayName = section.getString("display-name");
+        if (displayName != null) {
+            meta.setDisplayName(Utils.formatText(displayName));
+        }
+
+        List<String> loreStrings = section.getStringList("lore");
+        if (!loreStrings.isEmpty()) {
+            meta.setLore(loreStrings.stream()
+                    .map(Utils::formatText)
+                    .collect(Collectors.toList()));
+        }
+
+        if (section.isInt("custom-model-data")) {
+            meta.setCustomModelData(section.getInt("custom-model-data"));
+        }
+
+        if (meta instanceof Damageable && section.isInt("damage")) {
+            ((Damageable) meta).setDamage(section.getInt("damage"));
+        }
+
+        ConfigurationSection enchantSection = section.getConfigurationSection("enchantments");
+        if (enchantSection != null) {
+            for (String key : enchantSection.getKeys(false)) {
+                Enchantment enchantment = Enchantment.getByKey(NamespacedKey.minecraft(key.toLowerCase()));
+                if (enchantment != null) {
+                    meta.addEnchant(enchantment, enchantSection.getInt(key), true);
+                }
+            }
+        }
+
+        item.setItemMeta(meta);
+        return item;
+    }
 }

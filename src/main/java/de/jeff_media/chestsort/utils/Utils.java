@@ -5,12 +5,40 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import de.jeff_media.chestsort.ChestSortPlugin;
+import org.bukkit.ChatColor;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 
 public class Utils {
+
+    private static final Pattern HEX_PATTERN = Pattern.compile("<#([0-9a-fA-F]{6})>");
+
+    /**
+     * Converts a string with legacy &amp; colour codes and &lt;#rrggbb&gt; hex colour
+     * tags into a Bukkit-formatted string (§ codes).
+     */
+    public static String formatText(String text) {
+        if (text == null) return "";
+        // Strip gradient-end tags like <#/85c1e9>
+        text = text.replaceAll("<#/[0-9a-fA-F]{6}>", "");
+        // Convert <#rrggbb> to Spigot §x§r§r§g§g§b§b hex format
+        Matcher matcher = HEX_PATTERN.matcher(text);
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            String hex = matcher.group(1);
+            StringBuilder spigotHex = new StringBuilder("§x");
+            for (char c : hex.toCharArray()) {
+                spigotHex.append('§').append(c);
+            }
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(spigotHex.toString()));
+        }
+        matcher.appendTail(sb);
+        return ChatColor.translateAlternateColorCodes('&', sb.toString());
+    }
 
 	public static ItemStack[] getStorageContents(Inventory inv) {
 		return inv.getStorageContents();
