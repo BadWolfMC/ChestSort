@@ -1,0 +1,27 @@
+name: Build
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: temurin
+          cache: maven
+      - name: Verify
+        run: mvn --batch-mode --update-snapshots verify
+      - name: Upload distributable JAR
+        uses: actions/upload-artifact@v6
+        with:
+          name: ChestSort
+          path: target/ChestSort.jar
+          if-no-files-found: error
