@@ -16,8 +16,7 @@ import de.jeff_media.chestsort.hooks.HeadDatabaseHook;
 import de.jeff_media.chestsort.hooks.MinepacksHook;
 import de.jeff_media.chestsort.hooks.ShulkerPacksHook;
 import de.jeff_media.chestsort.utils.LlamaUtils;
-import net.md_5.bungee.api.ChatMessageType;
-import net.md_5.bungee.api.chat.TextComponent;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Material;
@@ -64,7 +63,6 @@ public class ChestSortListener implements org.bukkit.event.Listener {
             add("ICInventoryHolder"); // Interactive Chat
         }
     };
-    private static Event ignoredEvent;
     public final MinepacksHook minepacksHook;
     final ChestSortPlugin plugin;
     final HeadDatabaseHook headDatabaseHook;
@@ -186,16 +184,11 @@ public class ChestSortListener implements org.bukkit.event.Listener {
         Container containerState = (Container) state;
         Inventory inventory = containerState.getInventory();
 
-        try {
-            if (!advancedChestsHook.handleAChestSortingIfPresent(clickedBlock.getLocation())) {
-                plugin.getOrganizer().sortInventory(inventory);
-            }
-        } catch (Throwable ignored) {
-            // TODO: Remove when everyone updated AdvancedChests
+        if (!advancedChestsHook.handleAChestSortingIfPresent(clickedBlock.getLocation())) {
+            plugin.getOrganizer().sortInventory(inventory);
         }
-        event.getPlayer()
-                .spigot()
-                .sendMessage(ChatMessageType.ACTION_BAR, TextComponent.fromLegacyText(Messages.MSG_CONTAINER_SORTED));
+        event.getPlayer().sendActionBar(
+                LegacyComponentSerializer.legacySection().deserialize(Messages.MSG_CONTAINER_SORTED));
     }
 
     @EventHandler
@@ -218,17 +211,23 @@ public class ChestSortListener implements org.bukkit.event.Listener {
 
     @EventHandler
     public void onBackPackClose(InventoryCloseEvent event) {
+        if (!(event.getPlayer() instanceof Player player)) {
+            return;
+        }
         if (plugin.getConfig().getString("sort-time").equalsIgnoreCase("close") ||
                 plugin.getConfig().getString("sort-time").equalsIgnoreCase("both")) {
-            onBackPackUse(event.getInventory(), (Player) event.getPlayer());
+            onBackPackUse(event.getInventory(), player);
         }
     }
 
     @EventHandler
     public void onBackPackOpen(InventoryOpenEvent event) {
+        if (!(event.getPlayer() instanceof Player player)) {
+            return;
+        }
         if (plugin.getConfig().getString("sort-time").equalsIgnoreCase("open") ||
                 plugin.getConfig().getString("sort-time").equalsIgnoreCase("both")) {
-            onBackPackUse(event.getInventory(), (Player) event.getPlayer());
+            onBackPackUse(event.getInventory(), player);
         }
     }
 
@@ -870,9 +869,8 @@ public class ChestSortListener implements org.bukkit.event.Listener {
         }
 
         // Detect generic GUIs
-        if (!isAPICall(inventory, holder) && !isAPICall(clickedInventory, holder) &&
-                (plugin.getGenericHook().isPluginGUI(inventory, holder) ||
-                        plugin.getGenericHook().isPluginGUI(inventory, holder))) {
+        if (!isAPICall(inventory, holder)
+                && plugin.getGenericHook().isPluginGUI(inventory, holder)) {
             return;
         }
 

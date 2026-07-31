@@ -23,5 +23,5 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: ChestSort
-          path: target/ChestSort.jar
+          path: target/ChestSort-*.jar
           if-no-files-found: error

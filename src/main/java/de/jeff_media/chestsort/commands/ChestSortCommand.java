@@ -5,7 +5,7 @@ import de.jeff_media.chestsort.config.Messages;
 import de.jeff_media.chestsort.data.PlayerSetting;
 import de.jeff_media.chestsort.gui.NewUI;
 import de.jeff_media.chestsort.handlers.Debugger;
-import net.md_5.bungee.api.ChatColor;
+import org.bukkit.ChatColor;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -42,7 +42,6 @@ public class ChestSortCommand implements CommandExecutor {
             return true;
         }
 
-        //System.out.println(1);
         if(sender.hasPermission("chestsort.resetplayersettings") && args.length > 0 && args[0].equalsIgnoreCase("resetplayersettings")) {
             for(Player online : Bukkit.getOnlinePlayers()) {
                 plugin.unregisterPlayer(online);
@@ -51,7 +50,6 @@ public class ChestSortCommand implements CommandExecutor {
             sender.sendMessage("§cAll player settings have been reset!");
             return true;
         }
-        //System.out.println(2);
 
         // Reload command
         if (args.length > 0 && args[0].equalsIgnoreCase("reload")) {
@@ -69,6 +67,7 @@ public class ChestSortCommand implements CommandExecutor {
         if (args.length > 0 && args[0].equalsIgnoreCase("debug")) {
             if (!sender.hasPermission("chestsort.debug")) {
                 sendNoPermissionMessage(sender);
+                return true;
             }
             sender.sendMessage(ChatColor.RED + "ChestSort Debug mode enabled - I hope you know what you are doing!");
             plugin.setDebug(true);
@@ -82,7 +81,7 @@ public class ChestSortCommand implements CommandExecutor {
             return false;
         }
 
-        if (!(sender instanceof Player)) {
+        if (!(sender instanceof Player p)) {
 
             if (args.length != 0) {
                 if (args[0].equalsIgnoreCase("debug")) {
@@ -96,16 +95,16 @@ public class ChestSortCommand implements CommandExecutor {
             return true;
         }
 
-        Player p = (Player) sender;
+        // Recover cleanly if another plugin has reloaded the server.
+        // ChestSort itself does not rely on Bukkit's /reload mechanism.
 
-        // fix for Spigot's stupid /reload function
         plugin.registerPlayerIfNeeded(p);
 
         if (!plugin.getConfig().getBoolean("allow-automatic-sorting")) args = new String[]{"hotkeys"};
 
         if(!p.hasPermission("chestsort.automatic")) args = new String[]{"hotkeys"};
 
-        if(args.length==0 && plugin.getConfig().getBoolean("allow-gui",true) == false) {
+        if(args.length==0 && !plugin.getConfig().getBoolean("allow-gui",true)) {
             args = new String[] {"toggle"};
         }
 

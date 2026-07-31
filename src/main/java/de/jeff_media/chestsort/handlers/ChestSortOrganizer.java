@@ -13,6 +13,7 @@ import de.jeff_media.chestsort.utils.EnchantmentUtils;
 import de.jeff_media.chestsort.utils.TypeMatchPositionPair;
 import de.jeff_media.chestsort.utils.Utils;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.Player;
@@ -24,7 +25,6 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.PotionMeta;
-import org.bukkit.potion.PotionData;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -33,6 +33,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Scanner;
 import java.util.WeakHashMap;
@@ -84,10 +85,14 @@ public class ChestSortOrganizer {
             // categories
             return fileName.matches("(?i)^\\d\\d\\d.*\\.txt$");
         });
+        if (listOfCategoryFiles == null) {
+            plugin.getLogger().warning("Could not list category files in " + categoriesFolder.getAbsolutePath());
+            listOfCategoryFiles = new File[0];
+        }
         for (File file : listOfCategoryFiles) {
             if (file.isFile()) {
                 // Category name is the filename without .txt
-                String categoryName = file.getName().replaceFirst(".txt", "");
+                String categoryName = file.getName().replaceFirst("(?i)\\.txt$", "");
 
                 if (plugin.isDebug()) {
                     plugin.getLogger().info("Loading category file " + file.getName());
@@ -99,9 +104,9 @@ public class ChestSortOrganizer {
                         plugin.getLogger().info("Loaded category file " + file.getName() + " ("
                                 + category.typeMatches.length + " items)");
                     }
-                } catch (FileNotFoundException e) {
-                    plugin.getLogger().warning("Could not load category file: " + file.getName());
-                    e.printStackTrace();
+                } catch (FileNotFoundException exception) {
+                    plugin.getLogger().log(java.util.logging.Level.WARNING,
+                            "Could not load category file: " + file.getName(), exception);
                 }
             }
         }
@@ -273,7 +278,7 @@ public class ChestSortOrganizer {
         String myColor = (plugin.isDebug()) ? "~color~" : emptyPlaceholderString;
 
         // Only work with lowercase
-        typeName = typeName.toLowerCase();
+        typeName = typeName.toLowerCase(Locale.ROOT);
 
         // When a color occurs at the beginning (e.g. "white_wool"), we omit the color
         // so that the color will not
@@ -360,7 +365,7 @@ public class ChestSortOrganizer {
     // If none, matches, return "<none>" (it will be put behind all categorized
     // items when sorting by category)
     public CategoryLinePair getCategoryLinePair(String typeName) {
-        typeName = typeName.toLowerCase();
+        typeName = typeName.toLowerCase(Locale.ROOT);
         for (Category cat : categories) {
             short matchingLineNumber = cat.matches(typeName);
             if (matchingLineNumber != 0) {
@@ -393,26 +398,11 @@ public class ChestSortOrganizer {
         String potionEffect = ",";
 
         // Potions
-        if (item.getItemMeta() != null) {
-            ItemMeta meta = item.getItemMeta();
-            if (meta instanceof PotionMeta) {
-                PotionMeta potionMeta = (PotionMeta) meta;
-                // Try the new 1.20.5+ API (getBasePotionType) first, fall back to the old one
-                try {
-                    org.bukkit.potion.PotionType potionType = potionMeta.getBasePotionType();
-                    if (potionType != null && potionType.getPotionEffects() != null && !potionType.getPotionEffects().isEmpty()) {
-                        potionEffect = "|" + potionType.getPotionEffects().get(0).getType().getName();
-                    }
-                } catch (Throwable ignored) {
-                    // Fall back to pre-1.20.5 API
-                    try {
-                        PotionData pdata = potionMeta.getBasePotionData();
-                        if (pdata != null && pdata.getType() != null && pdata.getType().getEffectType() != null) {
-                            potionEffect = "|" + pdata.getType().getEffectType().getName();
-                        }
-                    } catch (Throwable ignored2) {
-                    }
-                }
+        ItemMeta meta = item.getItemMeta();
+        if (meta instanceof PotionMeta potionMeta) {
+            org.bukkit.potion.PotionType potionType = potionMeta.getBasePotionType();
+            if (potionType != null && !potionType.getPotionEffects().isEmpty()) {
+                potionEffect = "|" + potionType.getPotionEffects().get(0).getType().getKey().getKey();
             }
         }
 
@@ -431,20 +421,18 @@ public class ChestSortOrganizer {
         CategoryLinePair categoryLinePair = getCategoryLinePair(hookChangedName);
         String categoryName = categoryLinePair.getCategoryName();
         String categorySticky = categoryName;
-        String lineNumber = getCategoryLinePair(hookChangedName).getFormattedPosition();
+        String lineNumber = categoryLinePair.getFormattedPosition();
         if (stickyCategoryNames.contains(categoryName)) {
             categorySticky = categoryName + "~" + lineNumber;
         }
 
         String customName = (plugin.isDebug()) ? "~customName~" : emptyPlaceholderString;
-        if (item.getItemMeta().hasDisplayName() && item.getItemMeta().getDisplayName() != null) {
-            customName = item.getItemMeta().getDisplayName();
+        if (meta != null && meta.hasDisplayName() && meta.getDisplayName() != null) {
+            customName = meta.getDisplayName();
         }
         String lore = (plugin.isDebug()) ? "~lore~" : emptyPlaceholderString;
-        if (item.getItemMeta().hasLore() && item.getItemMeta().getLore() != null
-                && item.getItemMeta().getLore().size() != 0) {
-            String[] loreArray = item.getItemMeta().getLore().toArray(new String[0]);
-            lore = String.join(",", loreArray);
+        if (meta != null && meta.hasLore() && meta.getLore() != null && !meta.getLore().isEmpty()) {
+            lore = String.join(",", meta.getLore());
         }
 
         // Put enchanted items before unenchanted ones
@@ -502,18 +490,11 @@ public class ChestSortOrganizer {
         if (inv == null) return;
         if (unsortableInventories.containsKey(inv)) return;
         plugin.debug("Attempting to sort an Inventory and calling ChestSortEvent.");
-        Class<? extends Inventory> invClass = inv.getClass();
         ChestSortEvent chestSortEvent = new ChestSortEvent(inv);
 
-        try {
-            if (invClass.getMethod("getLocation", (Class<?>) null) != null) {
-                // This whole try/catch fixes MethodNotFoundException when using inv.getLocation in Spigot 1.8.
-                if (inv.getLocation() != null) {
-                    chestSortEvent.setLocation(inv.getLocation());
-                }
-            }
-        } catch (Throwable ignored) {
-
+        Location inventoryLocation = inv.getLocation();
+        if (inventoryLocation != null) {
+            chestSortEvent.setLocation(inventoryLocation);
         }
 
         InventoryHolder holder = inv.getHolder();
@@ -532,12 +513,6 @@ public class ChestSortOrganizer {
         if (chestSortEvent.isCancelled()) {
             plugin.debug("ChestSortEvent cancelled, I'll stay in bed.");
             return;
-        }
-
-
-        if (plugin.isDebug()) {
-            System.out.println(" ");
-            System.out.println(" ");
         }
 
         ArrayList<Integer> unsortableSlots = new ArrayList<>();
@@ -611,8 +586,9 @@ public class ChestSortOrganizer {
         Inventory tempInventory = Bukkit.createInventory(null, maxInventorySize); // cannot be bigger than 54 as of 1.14
 
         for (ItemStack item : nonNullItems) {
-            if (plugin.isDebug())
-                System.out.println(getSortableString(item, chestSortEvent.getSortableMaps().get(item)));
+            if (plugin.isDebug()) {
+                plugin.debug(getSortableString(item, chestSortEvent.getSortableMaps().get(item)));
+            }
             // Add the item to the temporary inventory
             tempInventory.addItem(item);
         }
@@ -625,8 +601,11 @@ public class ChestSortOrganizer {
         int currentSlot = startSlot;
         for (ItemStack item : tempInventory.getContents()) {
             if (item == null) break; // TODO: If there is item loss, change break to continue (should not happen)
-            while (unsortableSlots.contains(currentSlot) && currentSlot < endSlot) {
+            while (currentSlot <= endSlot && unsortableSlots.contains(currentSlot)) {
                 currentSlot++;
+            }
+            if (currentSlot > endSlot) {
+                break;
             }
             inv.setItem(currentSlot, item);
             currentSlot++;

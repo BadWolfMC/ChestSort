@@ -9,12 +9,12 @@
     <name>ChestSort</name>
     <url>https://www.chestsort.de</url>
     <description>Allows automatic chest sorting!</description>
-    <version>14.3.0</version>
+    <version>14.4.0</version>
     <packaging>jar</packaging>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <java.version>25</java.version>
+        <maven.compiler.release>25</maven.compiler.release>
 
         <spigot.prefix>${project.name}</spigot.prefix>
         <spigot.main>${project.groupId}.chestsort.ChestSortPlugin</spigot.main>
@@ -45,71 +45,13 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.11.0</version>
-                <configuration>
-                    <release>${java.version}</release>
-                </configuration>
-            </plugin>
-
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-shade-plugin</artifactId>
-                <version>3.6.2</version>
-                <configuration>
-                    <minimizeJar>true</minimizeJar>
-
-                    <relocations>
-
-                        <relocation>
-                            <pattern>org.bstats</pattern>
-                            <shadedPattern>de.jeff_media.chestsort.bstats</shadedPattern>
-                        </relocation>
-
-                    </relocations>
-                    <artifactSet>
-                        <excludes>
-                            <exclude>org.jetbrains:*</exclude>
-                            <exclude>org.intellij.lang:*</exclude>
-                            <exclude>org.slf4j</exclude>
-                            <exclude>de.jeff_media.chestsortapi:de.jeff_media.chestsortapi.ChestSortAPI</exclude>
-                        </excludes>
-                    </artifactSet>
-                    <filters>
-                        <filter>
-                            <artifact>*:*</artifact>
-                            <excludes>
-                                <exclude>META-INF/**</exclude>
-                            </excludes>
-                        </filter>
-                    </filters>
-                </configuration>
-                <executions>
-                    <execution>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>shade</goal>
-                        </goals>
-                    </execution>
-                </executions>
+                <version>3.15.0</version>
             </plugin>
         </plugins>
-
-        <extensions>
-            <extension>
-                <groupId>org.apache.maven.wagon</groupId>
-                <artifactId>wagon-ftp</artifactId>
-                <version>3.4.1</version>
-            </extension>
-        </extensions>
 
     </build>
 
     <repositories>
-
-        <repository>
-            <id>spigot-repo</id>
-            <url>https://hub.spigotmc.org/nexus/content/repositories/snapshots/</url>
-        </repository>
 
         <repository>
             <id>papermc</id>
@@ -119,11 +61,6 @@
         <repository>
             <id>placeholderapi</id>
             <url>https://repo.extendedclip.com/content/repositories/placeholderapi/</url>
-        </repository>
-
-        <repository>
-            <id>bungeecord-repo</id>
-            <url>https://oss.sonatype.org/content/repositories/snapshots</url>
         </repository>
 
         <repository>
@@ -148,13 +85,6 @@
         </dependency>
 
         <dependency>
-            <groupId>dev.folia</groupId>
-            <artifactId>folia-api</artifactId>
-            <version>[26.1.2.build,)</version>
-            <scope>provided</scope>
-        </dependency>
-
-        <dependency>
             <groupId>me.clip</groupId>
             <artifactId>placeholderapi</artifactId>
             <version>2.12.3</version>
@@ -165,20 +95,6 @@
             <groupId>org.jetbrains</groupId>
             <artifactId>annotations</artifactId>
             <version>23.0.0</version>
-        </dependency>
-
-
-        <dependency>
-            <groupId>org.bstats</groupId>
-            <artifactId>bstats-bukkit</artifactId>
-            <version>3.2.1</version>
-            <scope>compile</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>com.github.Slimefun</groupId>
-            <artifactId>Slimefun4</artifactId>
-            <version>RC-37</version>
             <scope>provided</scope>
         </dependency>
 

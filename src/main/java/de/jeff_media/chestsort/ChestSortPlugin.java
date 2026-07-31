@@ -38,7 +38,6 @@ import de.jeff_media.chestsort.data.PlayerSetting;
 import de.jeff_media.chestsort.gui.GUIListener;
 import de.jeff_media.chestsort.gui.SettingsGUI;
 import de.jeff_media.chestsort.gui.tracker.CustomGUITracker;
-import de.jeff_media.chestsort.gui.tracker.CustomGUIType;
 import de.jeff_media.chestsort.handlers.ChestSortOrganizer;
 import de.jeff_media.chestsort.handlers.ChestSortPermissionsHandler;
 import de.jeff_media.chestsort.handlers.Debugger;
@@ -49,17 +48,18 @@ import de.jeff_media.chestsort.hooks.PlayerVaultsHook;
 import de.jeff_media.chestsort.listeners.ChestSortListener;
 import de.jeff_media.chestsort.placeholders.Placeholders;
 import de.jeff_media.chestsort.utils.Utils;
-import org.bstats.bukkit.Metrics;
-import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
+import org.bukkit.command.PluginCommand;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.HandlerList;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.*;
+import java.nio.file.Files;
 import java.util.*;
 import java.util.regex.Pattern;
 
@@ -71,7 +71,6 @@ public class ChestSortPlugin extends JavaPlugin {
     boolean hotkeyGUI = true;
     private EnderContainersHook enderContainersHook;
     private GenericGUIHook genericHook;
-    public static boolean usingFolia = false;
     private boolean hookCrackShot = false;
     private boolean hookInventoryPages = false;
     private boolean hookMinepacks = false;
@@ -95,6 +94,17 @@ public class ChestSortPlugin extends JavaPlugin {
     private boolean verbose = true;
     private YamlConfiguration guiConfig = new YamlConfiguration();
     private int settingsFingerprint = 0;
+
+    private static final String PDC_SORTING_ENABLED = "sorting_enabled";
+    private static final String PDC_INV_SORTING_ENABLED = "inv_sorting_enabled";
+    private static final String PDC_HAS_SEEN_MESSAGE = "has_seen_message";
+    private static final String PDC_MIDDLE_CLICK = "middle_click";
+    private static final String PDC_SHIFT_CLICK = "shift_click";
+    private static final String PDC_DOUBLE_CLICK = "double_click";
+    private static final String PDC_SHIFT_RIGHT_CLICK = "shift_right_click";
+    private static final String PDC_LEFT_CLICK = "left_click";
+    private static final String PDC_RIGHT_CLICK = "right_click";
+    private static final String PDC_LEFT_CLICK_OUTSIDE = "left_click_outside";
 
     public List<Pattern> blacklistedInventoryHolderClassNames = new ArrayList<>();
 
@@ -153,18 +163,13 @@ public class ChestSortPlugin extends JavaPlugin {
     }
 
     private void createDirectories() {
-        // Create a playerdata folder that contains all the perPlayerSettings as .yml
-        File playerDataFolder = new File(getDataFolder().getPath() + File.separator + "playerdata");
-        if (!playerDataFolder.getAbsoluteFile().exists()) {
-            playerDataFolder.mkdir();
-        }
+        createDirectory(new File(getDataFolder(), "playerdata"));
+        createDirectory(new File(getDataFolder(), "categories"));
+    }
 
-        // Create a categories folder that contains text files. ChestSort includes
-        // default category files,
-        // but you can also create your own
-        File categoriesFolder = new File(getDataFolder().getPath() + File.separator + "categories");
-        if (!categoriesFolder.getAbsoluteFile().exists()) {
-            categoriesFolder.mkdir();
+    private void createDirectory(File directory) {
+        if (!directory.isDirectory() && !directory.mkdirs()) {
+            getLogger().warning("Could not create directory: " + directory.getAbsolutePath());
         }
     }
 
@@ -178,21 +183,15 @@ public class ChestSortPlugin extends JavaPlugin {
 
     // Dumps all Materials into a csv file with their current category
     void dump() {
-        try {
-            File file = new File(getDataFolder() + File.separator + "dump.csv");
-            FileOutputStream fos;
-            fos = new FileOutputStream(file);
-            BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(fos));
-            for (Material mat : Material.values()) {
-                bw.write(mat.name() + "," + getOrganizer().getCategoryLinePair(mat.name()).getCategoryName());
-                bw.newLine();
+        File file = new File(getDataFolder(), "dump.csv");
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file)))) {
+            for (Material material : Material.values()) {
+                writer.write(material.name() + "," + getOrganizer().getCategoryLinePair(material.name()).getCategoryName());
+                writer.newLine();
             }
-            bw.close();
-        } catch (IOException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
+        } catch (IOException exception) {
+            getLogger().log(java.util.logging.Level.WARNING, "Could not write " + file.getAbsolutePath(), exception);
         }
-
     }
 
     private String getCategoryList() {
@@ -203,7 +202,10 @@ public class ChestSortPlugin extends JavaPlugin {
             list.append(category.name).append(" (");
             list.append(category.typeMatches.length).append("), ");
         }
-        list = new StringBuilder(list.substring(0, list.length() - 2));
+        if (list.isEmpty()) {
+            return "(none)";
+        }
+        list.setLength(list.length() - 2);
         return list.toString();
 
     }
@@ -213,7 +215,10 @@ public class ChestSortPlugin extends JavaPlugin {
     }
 
     public void setDisabledWorlds(ArrayList<String> disabledWorlds) {
-        this.disabledWorlds = disabledWorlds;
+        this.disabledWorlds = new ArrayList<>();
+        for (String world : disabledWorlds) {
+            this.disabledWorlds.add(world.toLowerCase(Locale.ROOT));
+        }
     }
 
     public EnderContainersHook getEnderContainersHook() {
@@ -245,6 +250,9 @@ public class ChestSortPlugin extends JavaPlugin {
     }
 
     public void setLgr(Logger lgr) {
+        if (this.lgr != null) {
+            this.lgr.close();
+        }
         this.lgr = lgr;
     }
 
@@ -464,14 +472,16 @@ public class ChestSortPlugin extends JavaPlugin {
         setEnderContainersHook(new EnderContainersHook(this));
         getServer().getPluginManager().registerEvents(getListener(), this);
         getServer().getPluginManager().registerEvents(getSettingsGUI(), this);
-        getServer().getPluginManager().registerEvents(new GUIListener(), this);
-        ChestSortCommand chestsortCommandExecutor = new ChestSortCommand(this);
+        getServer().getPluginManager().registerEvents(new GUIListener(this), this);
+
         TabCompleter tabCompleter = new TabCompleter();
-        this.getCommand("sort").setExecutor(chestsortCommandExecutor);
-        this.getCommand("sort").setTabCompleter(tabCompleter);
-        InvSortCommand invsortCommandExecutor = new InvSortCommand(this);
-        this.getCommand("invsort").setExecutor(invsortCommandExecutor);
-        this.getCommand("invsort").setTabCompleter(tabCompleter);
+        PluginCommand sortCommand = Objects.requireNonNull(getCommand("sort"), "Missing sort command in plugin.yml");
+        sortCommand.setExecutor(new ChestSortCommand(this));
+        sortCommand.setTabCompleter(tabCompleter);
+
+        PluginCommand invSortCommand = Objects.requireNonNull(getCommand("isort"), "Missing isort command in plugin.yml");
+        invSortCommand.setExecutor(new InvSortCommand(this));
+        invSortCommand.setTabCompleter(tabCompleter);
         //this.getCommand("chestsortadmin").setExecutor(new AdminCommand(this));
 
         if (isVerbose()) {
@@ -504,7 +514,6 @@ public class ChestSortPlugin extends JavaPlugin {
             getLogger().info("Categories: " + getCategoryList());
         }
 
-        registerMetrics();
 
         if (getConfig().getBoolean("dump")) {
             dump();
@@ -520,13 +529,18 @@ public class ChestSortPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        // We have to unregister every player to save their perPlayerSettings
         for (Player player : getServer().getOnlinePlayers()) {
-            if(CustomGUITracker.getType(player.getOpenInventory()) == CustomGUIType.SETTINGS) {
+            if (CustomGUITracker.getType(player.getOpenInventory()) != null) {
                 player.closeInventory();
             }
             unregisterPlayer(player);
-            getPermissionsHandler().removePermissions(player);
+            if (getPermissionsHandler() != null) {
+                getPermissionsHandler().removePermissions(player);
+            }
+        }
+        CustomGUITracker.clear();
+        if (lgr != null) {
+            lgr.close();
         }
     }
 
@@ -549,69 +563,6 @@ public class ChestSortPlugin extends JavaPlugin {
         }
     }
 
-    @Override
-    public void onLoad() {
-        try {
-            Class.forName("io.papermc.paper.threadedregions.scheduler.RegionScheduler");
-            usingFolia = true;
-        } catch (ClassNotFoundException e) {
-            usingFolia = false;
-        }
-    }
-
-    private void registerMetrics() {
-        // Metrics will need json-simple with 1.14 API.
-        Metrics bStats = new Metrics(this, 3089);
-
-        bStats.addCustomChart(new Metrics.SimplePie("sorting_method", this::getSortingMethod));
-        bStats.addCustomChart(new Metrics.SimplePie("config_version",
-                () -> Integer.toString(getConfig().getInt("config-version", 0))));
-        bStats.addCustomChart(
-                new Metrics.SimplePie("check_for_updates", () -> getConfig().getString("check-for-updates", "true")));
-        bStats.addCustomChart(
-                new Metrics.SimplePie("update_interval", () -> Double.toString(getUpdateCheckInterval())));
-
-        bStats.addCustomChart(new Metrics.SimplePie("allow_automatic_sorting",
-                () -> Boolean.toString(getConfig().getBoolean("allow-automatic-sorting"))));
-        bStats.addCustomChart(new Metrics.SimplePie("allow_automatic_inv_sorting",
-                () -> Boolean.toString(getConfig().getBoolean("allow-automatic-inventory-sorting"))));
-
-        bStats.addCustomChart(new Metrics.SimplePie("show_message_when_using_chest",
-                () -> Boolean.toString(getConfig().getBoolean("show-message-when-using-chest"))));
-        bStats.addCustomChart(new Metrics.SimplePie("show_message_when_using_chest_and_sorting_is_enabl", () -> Boolean
-                .toString(getConfig().getBoolean("show-message-when-using-chest-and-sorting-is-enabled"))));
-        bStats.addCustomChart(new Metrics.SimplePie("show_message_again_after_logout",
-                () -> Boolean.toString(getConfig().getBoolean("show-message-again-after-logout"))));
-        bStats.addCustomChart(new Metrics.SimplePie("sorting_enabled_by_default",
-                () -> Boolean.toString(getConfig().getBoolean("sorting-enabled-by-default"))));
-        bStats.addCustomChart(new Metrics.SimplePie("inv_sorting_enabled_by_default",
-                () -> Boolean.toString(getConfig().getBoolean("inv-sorting-enabled-by-default"))));
-        bStats.addCustomChart(
-                new Metrics.SimplePie("using_matching_config_version", () -> Boolean.toString(isUsingMatchingConfig())));
-        bStats.addCustomChart(new Metrics.SimplePie("sort_time", () -> getConfig().getString("sort-time")));
-        bStats.addCustomChart(new Metrics.SimplePie("auto_generate_category_files",
-                () -> Boolean.toString(getConfig().getBoolean("auto-generate-category-files"))));
-        bStats.addCustomChart(new Metrics.SimplePie("allow_hotkeys",
-                () -> Boolean.toString(getConfig().getBoolean("allow-sorting-hotkeys"))));
-        bStats.addCustomChart(new Metrics.SimplePie("allow_additional_hotkeys",
-                () -> Boolean.toString(getConfig().getBoolean("allow-additional-hotkeys"))));
-        bStats.addCustomChart(new Metrics.SimplePie("hotkey_middle_click",
-                () -> Boolean.toString(getConfig().getBoolean("sorting-hotkeys.middle-click"))));
-        bStats.addCustomChart(new Metrics.SimplePie("hotkey_shift_click",
-                () -> Boolean.toString(getConfig().getBoolean("sorting-hotkeys.shift-click"))));
-        bStats.addCustomChart(new Metrics.SimplePie("hotkey_double_click",
-                () -> Boolean.toString(getConfig().getBoolean("sorting-hotkeys.double-click"))));
-        bStats.addCustomChart(new Metrics.SimplePie("hotkey_shift_right_click",
-                () -> Boolean.toString(getConfig().getBoolean("sorting-hotkeys.shift-right-click"))));
-        bStats.addCustomChart(new Metrics.SimplePie("hotkey_left_click",
-                () -> Boolean.toString(getConfig().getBoolean("additional-hotkeys.left-click"))));
-        bStats.addCustomChart(new Metrics.SimplePie("hotkey_right_click",
-                () -> Boolean.toString(getConfig().getBoolean("additional-hotkeys.right-click"))));
-        bStats.addCustomChart(new Metrics.SimplePie("use_permissions",
-                () -> Boolean.toString(getConfig().getBoolean("use-permissions"))));
-
-    }
-
     public void incrementFingerprint() {
         YamlConfiguration yaml = new YamlConfiguration();
         yaml.set("v",settingsFingerprint + 1);
@@ -619,110 +570,100 @@ public class ChestSortPlugin extends JavaPlugin {
         try {
             yaml.save(new File(getDataFolder(),"settings.fingerprint"));
             load(true);
-        } catch (IOException e) {
-            e.printStackTrace();
+        } catch (IOException exception) {
+            getLogger().log(java.util.logging.Level.WARNING, "Could not update settings fingerprint", exception);
         }
     }
 
-    public void registerPlayerIfNeeded(Player p) {
-        // Players are stored by their UUID, so that name changes don't break player's
-        // settings
-        UUID uniqueId = p.getUniqueId();
-
-        // Add player to map only if they aren't registered already
-        if (!getPerPlayerSettings().containsKey(uniqueId.toString())) {
-
-            // Player settings are stored in a file named after the player's UUID
-            File playerFile = new File(getDataFolder() + File.separator + "playerdata",
-                    p.getUniqueId() + ".yml");
-            YamlConfiguration playerConfig = YamlConfiguration.loadConfiguration(playerFile);
-
-            playerConfig.addDefault("sortingEnabled", getConfig().getBoolean("sorting-enabled-by-default"));
-            playerConfig.addDefault("invSortingEnabled", getConfig().getBoolean("inv-sorting-enabled-by-default"));
-            playerConfig.addDefault("middleClick", getConfig().getBoolean("sorting-hotkeys.middle-click"));
-            playerConfig.addDefault("shiftClick", getConfig().getBoolean("sorting-hotkeys.shift-click"));
-            playerConfig.addDefault("doubleClick", getConfig().getBoolean("sorting-hotkeys.double-click"));
-            playerConfig.addDefault("shiftRightClick", getConfig().getBoolean("sorting-hotkeys.shift-right-click"));
-            playerConfig.addDefault("leftClick", getConfig().getBoolean("additional-hotkeys.left-click"));
-            playerConfig.addDefault("rightClick", getConfig().getBoolean("additional-hotkeys.right-click"));
-            playerConfig.addDefault("leftClickOutside", getConfig().getBoolean("left-click-to-sort-enabled-by-default"));
-
-            boolean activeForThisPlayer;
-            boolean invActiveForThisPlayer;
-            boolean middleClick;
-            boolean shiftClick;
-            boolean doubleClick;
-            boolean shiftRightClick;
-            boolean leftClick;
-            boolean rightClick;
-            boolean leftClickFromOutside;
-            boolean changed;
-            boolean hasSeenMessage;
-
-            if (playerFile.exists() || !true) {
-                // If the player settings file does not exist for this player, set it to the
-                // default value
-                activeForThisPlayer = playerConfig.getBoolean("sortingEnabled");
-                invActiveForThisPlayer = playerConfig.getBoolean("invSortingEnabled");
-                middleClick = playerConfig.getBoolean("middleClick");
-                shiftClick = playerConfig.getBoolean("shiftClick");
-                doubleClick = playerConfig.getBoolean("doubleClick");
-                shiftRightClick = playerConfig.getBoolean("shiftRightClick");
-                leftClickFromOutside = playerConfig.getBoolean("leftClickOutside");
-                leftClick = playerConfig.getBoolean("leftClick");
-                rightClick = playerConfig.getBoolean("rightClick");
-                hasSeenMessage = playerConfig.getBoolean("hasSeenMessage");
-
-                changed = true;
-
-                if (true) {
-                    if (playerFile.delete()) {
-                        this.getLogger().info("Converted old .yml playerdata file to NBT tags for player " + p.getName());
-                    } else {
-                        this.getLogger().warning("Could not remove old playerdata .yml file for player " + p.getName());
-                    }
-                }
-            } else {
-                // If the file exists, check if the player has sorting enabled
-                // NBT Values
-
-                String fingerprint = getFingerprint();
-
-                activeForThisPlayer = Boolean.parseBoolean(p.getPersistentDataContainer().getOrDefault(new NamespacedKey(this, "sortingEnabled" + fingerprint), PersistentDataType.STRING, String.valueOf(playerConfig.getBoolean("sortingEnabled"))));
-                invActiveForThisPlayer = Boolean.parseBoolean(p.getPersistentDataContainer().getOrDefault(new NamespacedKey(this, "invSortingEnabled" + fingerprint), PersistentDataType.STRING, String.valueOf(playerConfig.getBoolean("invSortingEnabled", getConfig().getBoolean("inv-sorting-enabled-by-default")))));
-                middleClick = Boolean.parseBoolean(p.getPersistentDataContainer().getOrDefault(new NamespacedKey(this, "middleClick" + fingerprint), PersistentDataType.STRING, String.valueOf(playerConfig.getBoolean("middleClick"))));
-                shiftClick = Boolean.parseBoolean(p.getPersistentDataContainer().getOrDefault(new NamespacedKey(this, "shiftClick" + fingerprint), PersistentDataType.STRING, String.valueOf(playerConfig.getBoolean("shiftClick"))));
-                doubleClick = Boolean.parseBoolean(p.getPersistentDataContainer().getOrDefault(new NamespacedKey(this, "doubleClick" + fingerprint), PersistentDataType.STRING, String.valueOf(playerConfig.getBoolean("doubleClick"))));
-                shiftRightClick = Boolean.parseBoolean(p.getPersistentDataContainer().getOrDefault(new NamespacedKey(this, "shiftRightClick" + fingerprint), PersistentDataType.STRING, String.valueOf(playerConfig.getBoolean("shiftRightClick"))));
-                leftClick = Boolean.parseBoolean(p.getPersistentDataContainer().getOrDefault(new NamespacedKey(this, "leftClick" + fingerprint), PersistentDataType.STRING, String.valueOf(playerConfig.getBoolean("leftClick", getConfig().getBoolean("additional-hotkeys.left-click")))));
-                rightClick = Boolean.parseBoolean(p.getPersistentDataContainer().getOrDefault(new NamespacedKey(this, "rightClick" + fingerprint), PersistentDataType.STRING, String.valueOf(playerConfig.getBoolean("rightClick", getConfig().getBoolean("additional-hotkeys.right-click")))));
-                leftClickFromOutside = Boolean.parseBoolean(p.getPersistentDataContainer().getOrDefault(new NamespacedKey(this, "leftClickOutside" + fingerprint), PersistentDataType.STRING, String.valueOf(playerConfig.getBoolean("leftClickOutside", getConfig().getBoolean("left-click-to-sort-enabled-by-default")))));
-                hasSeenMessage = Boolean.parseBoolean(p.getPersistentDataContainer().getOrDefault(new NamespacedKey(this, "hasSeenMessage" + fingerprint), PersistentDataType.STRING, "false"));
-                //System.out.println("Loading playersetting from NBT");
-                if(getConfig().getBoolean("show-message-again-after-logout")) {
-                    //System.out.println("show-message-again-after-logout is true, sooo...");
-                    hasSeenMessage = false;
-                }
-
-                changed = true;
-            }
-
-            PlayerSetting newSettings = new PlayerSetting(activeForThisPlayer, invActiveForThisPlayer, middleClick, shiftClick, doubleClick, shiftRightClick, leftClick, rightClick, leftClickFromOutside, changed, hasSeenMessage);
-
-            // when "show-message-again-after-logout" is enabled, we don't care if the
-            // player already saw the message
-            if (!getConfig().getBoolean("show-message-again-after-logout")) {
-                if (!playerFile.exists()) {
-                    newSettings.hasSeenMessage = false;
-                } else {
-                    newSettings.hasSeenMessage = playerConfig.getBoolean("hasSeenMessage");
-                }
-            }
-
-            // Finally add the PlayerSetting object to the map
-            getPerPlayerSettings().put(uniqueId.toString(), newSettings);
-
+    public void registerPlayerIfNeeded(Player player) {
+        String playerId = player.getUniqueId().toString();
+        if (getPerPlayerSettings().containsKey(playerId)) {
+            return;
         }
+
+        File playerFile = new File(new File(getDataFolder(), "playerdata"), playerId + ".yml");
+        YamlConfiguration playerConfig = YamlConfiguration.loadConfiguration(playerFile);
+
+        boolean sortingEnabled;
+        boolean invSortingEnabled;
+        boolean middleClick;
+        boolean shiftClick;
+        boolean doubleClick;
+        boolean shiftRightClick;
+        boolean leftClick;
+        boolean rightClick;
+        boolean leftClickOutside;
+        boolean hasSeenMessage;
+
+        if (playerFile.isFile()) {
+            sortingEnabled = playerConfig.getBoolean("sortingEnabled", getConfig().getBoolean("sorting-enabled-by-default"));
+            invSortingEnabled = playerConfig.getBoolean("invSortingEnabled", getConfig().getBoolean("inv-sorting-enabled-by-default"));
+            middleClick = playerConfig.getBoolean("middleClick", getConfig().getBoolean("sorting-hotkeys.middle-click"));
+            shiftClick = playerConfig.getBoolean("shiftClick", getConfig().getBoolean("sorting-hotkeys.shift-click"));
+            doubleClick = playerConfig.getBoolean("doubleClick", getConfig().getBoolean("sorting-hotkeys.double-click"));
+            shiftRightClick = playerConfig.getBoolean("shiftRightClick", getConfig().getBoolean("sorting-hotkeys.shift-right-click"));
+            leftClick = playerConfig.getBoolean("leftClick", getConfig().getBoolean("additional-hotkeys.left-click"));
+            rightClick = playerConfig.getBoolean("rightClick", getConfig().getBoolean("additional-hotkeys.right-click"));
+            leftClickOutside = playerConfig.getBoolean("leftClickOutside", getConfig().getBoolean("left-click-to-sort-enabled-by-default"));
+            hasSeenMessage = playerConfig.getBoolean("hasSeenMessage", false);
+
+        } else {
+            sortingEnabled = getStoredBoolean(player, PDC_SORTING_ENABLED, getConfig().getBoolean("sorting-enabled-by-default"));
+            invSortingEnabled = getStoredBoolean(player, PDC_INV_SORTING_ENABLED, getConfig().getBoolean("inv-sorting-enabled-by-default"));
+            middleClick = getStoredBoolean(player, PDC_MIDDLE_CLICK, getConfig().getBoolean("sorting-hotkeys.middle-click"));
+            shiftClick = getStoredBoolean(player, PDC_SHIFT_CLICK, getConfig().getBoolean("sorting-hotkeys.shift-click"));
+            doubleClick = getStoredBoolean(player, PDC_DOUBLE_CLICK, getConfig().getBoolean("sorting-hotkeys.double-click"));
+            shiftRightClick = getStoredBoolean(player, PDC_SHIFT_RIGHT_CLICK, getConfig().getBoolean("sorting-hotkeys.shift-right-click"));
+            leftClick = getStoredBoolean(player, PDC_LEFT_CLICK, getConfig().getBoolean("additional-hotkeys.left-click"));
+            rightClick = getStoredBoolean(player, PDC_RIGHT_CLICK, getConfig().getBoolean("additional-hotkeys.right-click"));
+            leftClickOutside = getStoredBoolean(player, PDC_LEFT_CLICK_OUTSIDE, getConfig().getBoolean("left-click-to-sort-enabled-by-default"));
+            hasSeenMessage = getStoredBoolean(player, PDC_HAS_SEEN_MESSAGE, false);
+        }
+
+        if (getConfig().getBoolean("show-message-again-after-logout")) {
+            hasSeenMessage = false;
+        }
+
+        PlayerSetting settings = new PlayerSetting(
+                sortingEnabled, invSortingEnabled, middleClick, shiftClick, doubleClick,
+                shiftRightClick, leftClick, rightClick, leftClickOutside, true, hasSeenMessage);
+        if (playerFile.isFile()) {
+            savePlayerSettings(player, settings);
+            if (playerFile.delete()) {
+                getLogger().info("Converted old .yml playerdata file to persistent player data for " + player.getName());
+            } else {
+                getLogger().warning("Could not remove old playerdata .yml file for " + player.getName());
+            }
+        }
+        getPerPlayerSettings().put(playerId, settings);
+    }
+
+    private boolean getStoredBoolean(Player player, String key, boolean defaultValue) {
+        Boolean value = player.getPersistentDataContainer().get(
+                getPlayerSettingsKey(key), PersistentDataType.BOOLEAN);
+        return value == null ? defaultValue : value;
+    }
+
+    private void setStoredBoolean(Player player, String key, boolean value) {
+        player.getPersistentDataContainer().set(
+                getPlayerSettingsKey(key), PersistentDataType.BOOLEAN, value);
+    }
+
+    private void savePlayerSettings(Player player, PlayerSetting setting) {
+        setStoredBoolean(player, PDC_SORTING_ENABLED, setting.sortingEnabled);
+        setStoredBoolean(player, PDC_INV_SORTING_ENABLED, setting.invSortingEnabled);
+        setStoredBoolean(player, PDC_HAS_SEEN_MESSAGE, setting.hasSeenMessage);
+        setStoredBoolean(player, PDC_MIDDLE_CLICK, setting.middleClick);
+        setStoredBoolean(player, PDC_SHIFT_CLICK, setting.shiftClick);
+        setStoredBoolean(player, PDC_DOUBLE_CLICK, setting.doubleClick);
+        setStoredBoolean(player, PDC_SHIFT_RIGHT_CLICK, setting.shiftRightClick);
+        setStoredBoolean(player, PDC_LEFT_CLICK, setting.leftClick);
+        setStoredBoolean(player, PDC_RIGHT_CLICK, setting.rightClick);
+        setStoredBoolean(player, PDC_LEFT_CLICK_OUTSIDE, setting.leftClickOutside);
+    }
+
+    public NamespacedKey getPlayerSettingsKey(String key) {
+        return new NamespacedKey(this, key + getFingerprint());
     }
 
     private String getFingerprint() {
@@ -745,16 +686,15 @@ public class ChestSortPlugin extends JavaPlugin {
         String[] defaultCategories = {"900-weapons", "905-common-tools", "907-other-tools", "909-food", "910-valuables", "920-armor-and-arrows", "930-brewing",
                 "950-redstone", "960-wood", "970-stone", "980-plants", "981-corals", "_ReadMe - Category files"};
 
-        // Delete all files starting with 9..
-        for (File file : new File(getDataFolder().getAbsolutePath() + File.separator + "categories" + File.separator)
-                .listFiles((directory, fileName) -> {
-                    if (!fileName.endsWith(".txt")) {
-                        return false;
-                    }
-                    // Category between 900 and 999-... are default
-                    // categories
-                    return fileName.matches("(?i)9\\d\\d.*\\.txt$");
-                })) {
+        // Delete obsolete generated category files.
+        File categoriesDirectory = new File(getDataFolder(), "categories");
+        File[] generatedCategoryFiles = categoriesDirectory.listFiles((directory, fileName) ->
+                fileName.matches("(?i)9\\d\\d.*\\.txt$"));
+        if (generatedCategoryFiles == null) {
+            getLogger().warning("Could not list category directory: " + categoriesDirectory.getAbsolutePath());
+            return;
+        }
+        for (File file : generatedCategoryFiles) {
 
             boolean delete = true;
 
@@ -766,44 +706,27 @@ public class ChestSortPlugin extends JavaPlugin {
                 }
             }
             if (delete) {
-                file.delete();
-                getLogger().warning("Deleting deprecated default category file " + file.getName());
+                if (file.delete()) {
+                    getLogger().warning("Deleting deprecated default category file " + file.getName());
+                } else {
+                    getLogger().warning("Could not delete deprecated default category file " + file.getName());
+                }
             }
 
         }
 
         for (String category : defaultCategories) {
-
-            FileOutputStream fopDefault = null;
-            File fileDefault;
-
-            try {
-                InputStream in = getClass().getResourceAsStream("/categories/" + category + ".default.txt");
-
-                fileDefault = new File(getDataFolder().getAbsolutePath() + File.separator + "categories"
-                        + File.separator + category + ".txt");
-                fopDefault = new FileOutputStream(fileDefault);
-
-                // overwrites existing files, on purpose.
-                fileDefault.createNewFile();
-
-                // get the content in bytes
-                byte[] contentInBytes = Utils.getBytes(in);
-
-                fopDefault.write(contentInBytes);
-                fopDefault.flush();
-                fopDefault.close();
-
-            } catch (IOException e) {
-                e.printStackTrace();
-            } finally {
-                try {
-                    if (fopDefault != null) {
-                        fopDefault.close();
-                    }
-                } catch (IOException e) {
-                    e.printStackTrace();
+            String resourcePath = "categories/" + category + ".default.txt";
+            File targetFile = new File(categoriesDirectory, category + ".txt");
+            try (InputStream input = getResource(resourcePath)) {
+                if (input == null) {
+                    getLogger().warning("Missing category resource: " + resourcePath);
+                    continue;
                 }
+                Files.copy(input, targetFile.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException exception) {
+                getLogger().log(java.util.logging.Level.WARNING,
+                        "Could not write default category file: " + targetFile.getAbsolutePath(), exception);
             }
         }
     }
@@ -862,80 +785,25 @@ public class ChestSortPlugin extends JavaPlugin {
     }
 
     void unregisterAllPlayers() {
-        if (getPerPlayerSettings() != null && getPerPlayerSettings().size() > 0) {
-            for (String s : getPerPlayerSettings().keySet()) {
-                Player p = getServer().getPlayer(s);
-                if (p != null) {
-                    unregisterPlayer(p);
-                }
-            }
-        } else {
+        if (getPerPlayerSettings() == null) {
             setPerPlayerSettings(new HashMap<>());
+            return;
         }
+
+        for (Player player : getServer().getOnlinePlayers()) {
+            unregisterPlayer(player);
+        }
+        getPerPlayerSettings().clear();
     }
 
-    // Unregister a player and save their settings in the playerdata folder
-    public void unregisterPlayer(Player p) {
-        // File will be named by the player's uuid. This will prevent problems on player
-        // name changes.
-        UUID uniqueId = p.getUniqueId();
-
-        // When using /reload or some other obscure features, it can happen that players
-        // are online
-        // but not registered. So, we only continue when the player has been registered
-        if (getPerPlayerSettings().containsKey(uniqueId.toString())) {
-            PlayerSetting setting = getPerPlayerSettings().get(p.getUniqueId().toString());
-
-            if (true) {
-
-                for(NamespacedKey key : p.getPersistentDataContainer().getKeys()) {
-                    if(key.getKey().equals(new NamespacedKey(this,"test").getKey())) {
-                        p.getPersistentDataContainer().remove(key);
-                    }
-                }
-
-                String fingerprint = getFingerprint();
-
-                p.getPersistentDataContainer().set(new NamespacedKey(this, "sortingEnabled" + fingerprint), PersistentDataType.STRING, String.valueOf(setting.sortingEnabled));
-                p.getPersistentDataContainer().set(new NamespacedKey(this, "invSortingEnabled" + fingerprint), PersistentDataType.STRING, String.valueOf(setting.invSortingEnabled));
-                p.getPersistentDataContainer().set(new NamespacedKey(this, "hasSeenMessage" + fingerprint), PersistentDataType.STRING, String.valueOf(setting.hasSeenMessage));
-                p.getPersistentDataContainer().set(new NamespacedKey(this, "middleClick" + fingerprint), PersistentDataType.STRING, String.valueOf(setting.middleClick));
-                p.getPersistentDataContainer().set(new NamespacedKey(this, "shiftClick" + fingerprint), PersistentDataType.STRING, String.valueOf(setting.shiftClick));
-                p.getPersistentDataContainer().set(new NamespacedKey(this, "doubleClick" + fingerprint), PersistentDataType.STRING, String.valueOf(setting.doubleClick));
-                p.getPersistentDataContainer().set(new NamespacedKey(this, "shiftRightClick" + fingerprint), PersistentDataType.STRING, String.valueOf(setting.shiftRightClick));
-                p.getPersistentDataContainer().set(new NamespacedKey(this, "leftClick" + fingerprint), PersistentDataType.STRING, String.valueOf(setting.leftClick));
-                p.getPersistentDataContainer().set(new NamespacedKey(this, "rightClick" + fingerprint), PersistentDataType.STRING, String.valueOf(setting.rightClick));
-                p.getPersistentDataContainer().set(new NamespacedKey(this, "leftClickOutside" + fingerprint), PersistentDataType.STRING, String.valueOf(setting.leftClickOutside));
-            } else {
-
-                File playerFile = new File(getDataFolder() + File.separator + "playerdata", p.getUniqueId() + ".yml");
-                YamlConfiguration playerConfig = YamlConfiguration.loadConfiguration(playerFile);
-                playerConfig.set("sortingEnabled", setting.sortingEnabled);
-                playerConfig.set("invSortingEnabled", setting.invSortingEnabled);
-                playerConfig.set("hasSeenMessage", setting.hasSeenMessage);
-                playerConfig.set("middleClick", setting.middleClick);
-                playerConfig.set("shiftClick", setting.shiftClick);
-                playerConfig.set("doubleClick", setting.doubleClick);
-                playerConfig.set("shiftRightClick", setting.shiftRightClick);
-                playerConfig.set("leftClick", setting.leftClick);
-                playerConfig.set("rightClick", setting.rightClick);
-                playerConfig.set("leftClickOutside", setting.leftClickOutside);
-                try {
-                    // Only saved if the config has been changed
-                    if (setting.changed) {
-                        if (isDebug()) {
-                            getLogger().info("PlayerSettings for " + p.getName() + " have changed, saving to file.");
-                        }
-                        playerConfig.save(playerFile);
-                    }
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-
-            }
-
-            getPerPlayerSettings().remove(uniqueId.toString());
+    public void unregisterPlayer(Player player) {
+        String playerId = player.getUniqueId().toString();
+        PlayerSetting setting = getPerPlayerSettings().remove(playerId);
+        if (setting == null) {
+            return;
         }
+
+        savePlayerSettings(player, setting);
     }
 
 }

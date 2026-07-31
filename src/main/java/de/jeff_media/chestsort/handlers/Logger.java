@@ -7,63 +7,91 @@ import org.bukkit.entity.Player;
 import java.io.File;
 import java.io.IOException;
 import java.util.logging.FileHandler;
+import java.util.logging.Level;
 import java.util.logging.SimpleFormatter;
 
-public class Logger {
+public class Logger implements AutoCloseable {
 
-    ChestSortPlugin plugin;
-    boolean log;
-    java.util.logging.Logger logger;
+    private final ChestSortPlugin plugin;
+    private final boolean enabled;
+    private final java.util.logging.Logger logger;
+    private FileHandler fileHandler;
 
-    public Logger(ChestSortPlugin plugin, boolean log) {
-        if(!log) return;
+    public Logger(ChestSortPlugin plugin, boolean enabled) {
+        this.plugin = plugin;
+        this.enabled = enabled;
+        this.logger = java.util.logging.Logger.getLogger("ChestSortLogger");
+        this.logger.setUseParentHandlers(false);
+
+        if (!enabled) {
+            return;
+        }
+
         plugin.getLogger().info("=======================================");
         plugin.getLogger().info("     CHESTSORT LOGGER ACTIVATED!");
         plugin.getLogger().info("=======================================");
-        this.plugin=plugin;
-        this.log=log;
-        logger = java.util.logging.Logger.getLogger("ChestSortLogger");
-        logger.setUseParentHandlers(false);
-        FileHandler fh;
+
         try {
-            fh = new FileHandler(plugin.getDataFolder()+ File.separator+"ChestSort.log");
-            logger.addHandler(fh);
-            SimpleFormatter formatter = new SimpleFormatter();
-            fh.setFormatter(formatter);
-        } catch (IOException e) {
-            e.printStackTrace();
+            fileHandler = new FileHandler(
+                    new File(plugin.getDataFolder(), "ChestSort.log").getAbsolutePath(), true);
+            fileHandler.setFormatter(new SimpleFormatter());
+            logger.addHandler(fileHandler);
+        } catch (IOException exception) {
+            plugin.getLogger().log(Level.WARNING, "Could not open ChestSort.log", exception);
         }
     }
 
-    private String getPlayerSettings(Player p) {
-        if(plugin.getPerPlayerSettings().containsKey(p.getUniqueId().toString())) {
-            PlayerSetting s = plugin.getPerPlayerSettings().get(p.getUniqueId().toString());
-            return String.format("sorting: %s, invsorting: %s, middle-click: %s, shift-click: %s, double-click: %s, shift-right-click: %s, left-click: %s, right-click: %s, seen-msg: %s",
-                    s.sortingEnabled, s.invSortingEnabled, s.middleClick, s.shiftClick, s.doubleClick, s.shiftRightClick, s.leftClick, s.rightClick, s.hasSeenMessage);
-        } else {
+    private String getPlayerSettings(Player player) {
+        PlayerSetting setting = plugin.getPerPlayerSettings().get(player.getUniqueId().toString());
+        if (setting == null) {
             return "null";
         }
+        return String.format(
+                "sorting: %s, invsorting: %s, middle-click: %s, shift-click: %s, double-click: %s, "
+                        + "shift-right-click: %s, left-click: %s, right-click: %s, seen-msg: %s",
+                setting.sortingEnabled,
+                setting.invSortingEnabled,
+                setting.middleClick,
+                setting.shiftClick,
+                setting.doubleClick,
+                setting.shiftRightClick,
+                setting.leftClick,
+                setting.rightClick,
+                setting.hasSeenMessage);
     }
 
-    private void log(String s) {
-        if(!log) return;
-        logger.info(s);
+    private void log(String message) {
+        if (enabled && fileHandler != null) {
+            logger.info(message);
+        }
     }
 
-    public void logSort(Player p, SortCause cause) {
-        if(!log) return;
-        String settings = getPlayerSettings(p);
-        if(cause==null) cause = SortCause.UNKNOWN;
-        log(String.format("SORT: Player: %s, Cause: %s, Settings: {%s}",p.getName(),cause.name(),settings));
+    public void logSort(Player player, SortCause cause) {
+        SortCause effectiveCause = cause == null ? SortCause.UNKNOWN : cause;
+        log(String.format(
+                "SORT: Player: %s, Cause: %s, Settings: {%s}",
+                player.getName(), effectiveCause.name(), getPlayerSettings(player)));
+    }
+
+    public void logPlayerJoin(Player player) {
+        log(String.format(
+                "JOIN: Player: %s, Settings: {%s}",
+                player.getName(), getPlayerSettings(player)));
+    }
+
+    @Override
+    public void close() {
+        if (fileHandler == null) {
+            return;
+        }
+        fileHandler.flush();
+        fileHandler.close();
+        logger.removeHandler(fileHandler);
+        fileHandler = null;
     }
 
     public enum SortCause {
-        UNKNOWN, INV_CLOSE, CONT_CLOSE, CONT_OPEN, EC_OPEN, H_MIDDLE, H_SHIFT, H_DOUBLE, H_SHIFTRIGHT, H_LEFT, H_RIGHT, CMD_ISORT
-    }
-
-    public void logPlayerJoin(Player p) {
-        if(!log) return;
-        String settings = getPlayerSettings(p);
-        log(String.format("JOIN: Player: %s, Settings: {%s}",p.getName(),settings));
+        UNKNOWN, INV_CLOSE, CONT_CLOSE, CONT_OPEN, EC_OPEN, H_MIDDLE, H_SHIFT, H_DOUBLE,
+        H_SHIFTRIGHT, H_LEFT, H_RIGHT, CMD_ISORT
     }
 }

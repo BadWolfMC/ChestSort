@@ -9,7 +9,11 @@ public class FoliaRunnable extends BukkitRunnable {
 
     @Override
     public synchronized void cancel() throws IllegalStateException {
-        if(foliaTask != null) foliaTask.cancel();
+        if (foliaTask != null) {
+            foliaTask.cancel();
+            return;
+        }
+        super.cancel();
     }
 
     @Override

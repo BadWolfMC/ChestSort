@@ -1,9 +1,8 @@
 main: ${spigot.main}
 name: ${project.name}
 version: ${project.version}
-api-version: "1.21"
+api-version: "26.2"
 description: "${project.description}"
-folia-supported: true
 authors:
   - mfnalex
   - JEFF Media GbR

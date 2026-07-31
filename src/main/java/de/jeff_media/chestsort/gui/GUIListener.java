@@ -14,47 +14,71 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 
 public class GUIListener implements Listener {
 
-    private static final ChestSortPlugin main = ChestSortPlugin.getInstance();
+    private final ChestSortPlugin plugin;
+    private final NamespacedKey functionKey;
+    private final NamespacedKey userCommandsKey;
+    private final NamespacedKey adminCommandsKey;
 
-    @EventHandler
+    public GUIListener(ChestSortPlugin plugin) {
+        this.plugin = plugin;
+        this.functionKey = new NamespacedKey(plugin, "function");
+        this.userCommandsKey = new NamespacedKey(plugin, "user-commands");
+        this.adminCommandsKey = new NamespacedKey(plugin, "admin-commands");
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onClick(InventoryClickEvent event) {
-        if(CustomGUITracker.getType(event.getView()) == CustomGUIType.NEW) {
-            event.setCancelled(true);
+        if (CustomGUITracker.getType(event.getView()) != CustomGUIType.NEW) {
+            return;
+        }
+        event.setCancelled(true);
+
+        if (!(event.getWhoClicked() instanceof Player player)) {
+            return;
         }
 
         ItemStack clicked = event.getCurrentItem();
-        if(clicked == null || !clicked.hasItemMeta()) return;
+        if (clicked == null || !clicked.hasItemMeta()) {
+            return;
+        }
 
-        if(!(event.getWhoClicked() instanceof Player)) return;
-        Player player = (Player) event.getWhoClicked();
-        PlayerSetting setting = main.getPlayerSetting(player);
-        String function = Objects.requireNonNull(clicked.getItemMeta()).getPersistentDataContainer().getOrDefault(new NamespacedKey(main,"function"), PersistentDataType.STRING,"");
-        List<String> userCommands = clicked.getItemMeta().getPersistentDataContainer().getOrDefault(new NamespacedKey(main,"user-commands"), PersistentDataType.LIST.strings(), new ArrayList<>());
-        List<String> adminCommands = clicked.getItemMeta().getPersistentDataContainer().getOrDefault(new NamespacedKey(main,"admin-commands"), PersistentDataType.LIST.strings(), new ArrayList<>());
+        ItemMeta meta = clicked.getItemMeta();
+        if (meta == null) {
+            return;
+        }
+
+        String function = meta.getPersistentDataContainer().getOrDefault(
+                functionKey, PersistentDataType.STRING, "");
+        List<String> userCommands = meta.getPersistentDataContainer().getOrDefault(
+                userCommandsKey, PersistentDataType.LIST.strings(), new ArrayList<>());
+        List<String> adminCommands = meta.getPersistentDataContainer().getOrDefault(
+                adminCommandsKey, PersistentDataType.LIST.strings(), new ArrayList<>());
 
         executeCommands(player, player, userCommands);
         executeCommands(player, Bukkit.getConsoleSender(), adminCommands);
-        //System.out.println("Click in GUI: " + function);
 
+        PlayerSetting setting = plugin.getPlayerSetting(player);
         switch (function) {
-            case "": return;
-            case "leftclick": setting.toggleLeftClick(); break;
-            case "rightclick": setting.toggleRightClick(); break;
-            case "shiftclick": setting.toggleShiftClick(); break;
-            case "middleclick": setting.toggleMiddleClick(); break;
-            case "shiftrightclick": setting.toggleShiftRightClick(); break;
-            case "doubleclick": setting.toggleDoubleClick(); break;
-            case "outside": setting.toggleLeftClickOutside(); break;
-            case "autosorting": setting.toggleChestSorting(); break;
-            case "autoinvsorting": setting.toggleInvSorting(); break;
+            case "leftclick" -> setting.toggleLeftClick();
+            case "rightclick" -> setting.toggleRightClick();
+            case "shiftclick" -> setting.toggleShiftClick();
+            case "middleclick" -> setting.toggleMiddleClick();
+            case "shiftrightclick" -> setting.toggleShiftRightClick();
+            case "doubleclick" -> setting.toggleDoubleClick();
+            case "outside" -> setting.toggleLeftClickOutside();
+            case "autosorting" -> setting.toggleChestSorting();
+            case "autoinvsorting" -> setting.toggleInvSorting();
+            default -> {
+                return;
+            }
         }
 
         new NewUI(player).showGUI();
@@ -66,9 +90,8 @@ public class GUIListener implements Listener {
     }
 
     private void executeCommands(Player player, CommandSender sender, List<String> commands) {
-        for(String command : commands) {
-            main.getServer().dispatchCommand(sender, command.replace("{player}", player.getName()));
+        for (String command : commands) {
+            plugin.getServer().dispatchCommand(sender, command.replace("{player}", player.getName()));
         }
     }
-
 }

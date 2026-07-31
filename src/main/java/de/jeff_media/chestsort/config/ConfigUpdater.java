@@ -6,14 +6,14 @@ import org.bukkit.plugin.Plugin;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.logging.Logger;
 
 /**
- * Updates the config file. When a new config file is shipped with AngelChest, it will save the new
+ * Updates the config file. When a new config file is shipped with ChestSort, it saves the new
  * file and replace all default values with the values that were set in the old config file.
  */
 public final class ConfigUpdater {
@@ -29,12 +29,17 @@ public final class ConfigUpdater {
     // Lines STARTING WITH these names will get their values wrapped in single quotes
     private static final String[] NODES_NEEDING_SINGLE_QUOTES = {};
 
-    private static void backupCurrentConfig(final ChestSortPlugin main) {
+    private static boolean backupCurrentConfig(final ChestSortPlugin main) {
         final File oldFile = new File(getFilePath(main, "config.yml"));
         final File newFile = new File(getFilePath(main, "config-backup-" + main.getConfig().getString(Config.CONFIG_PLUGIN_VERSION) + ".yml"));
-        if (newFile.exists()) newFile.delete();
-        if (oldFile.getAbsoluteFile().renameTo(newFile.getAbsoluteFile())) {
-            if(main.isDebug()) main.debug("Could not rename " + oldFile.getAbsolutePath() + " to " + newFile.getAbsolutePath());
+        try {
+            Files.move(oldFile.toPath(), newFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            return true;
+        } catch (IOException exception) {
+            main.getLogger().log(java.util.logging.Level.WARNING,
+                    "Could not back up " + oldFile.getAbsolutePath() + " to " + newFile.getAbsolutePath(),
+                    exception);
+            return false;
         }
     }
 
@@ -53,31 +58,34 @@ public final class ConfigUpdater {
     }
 
     private static List<String> getNewConfigAsArrayList(final Plugin main) {
-        final List<String> lines;
         try {
-            lines = Files.readAllLines(Paths.get(getFilePath(main, "config.yml")), StandardCharsets.UTF_8);
-            return lines;
-        } catch (final IOException ioException) {
-            ioException.printStackTrace();
+            return Files.readAllLines(new File(getFilePath(main, "config.yml")).toPath(), StandardCharsets.UTF_8);
+        } catch (final IOException exception) {
+            main.getLogger().log(java.util.logging.Level.WARNING, "Could not read the new config.yml", exception);
+            return List.of();
         }
-        return null;
     }
 
     /**
-     * Returns the config version of the currently installed AngelChest default config
+     * Returns the config version of the currently installed ChestSort default config
      *
      * @return default config version
      */
     private static long getNewConfigVersion() {
-        final InputStream in = ChestSortPlugin.getInstance().getClass().getResourceAsStream("/config-version.txt");
-        final BufferedReader reader = new BufferedReader(new InputStreamReader(in));
-        try {
-            return Long.parseLong(reader.readLine());
-        } catch (final IOException ioException) {
-            ioException.printStackTrace();
+        InputStream input = ChestSortPlugin.getInstance().getResource("config-version.txt");
+        if (input == null) {
+            ChestSortPlugin.getInstance().getLogger().warning("Missing config-version.txt in the plugin JAR");
             return 0;
         }
 
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
+            String line = reader.readLine();
+            return line == null ? 0 : Long.parseLong(line.trim());
+        } catch (IOException | NumberFormatException exception) {
+            ChestSortPlugin.getInstance().getLogger().log(
+                    java.util.logging.Level.WARNING, "Could not read config-version.txt", exception);
+            return 0;
+        }
     }
 
     /**
@@ -124,14 +132,14 @@ public final class ConfigUpdater {
     }
 
     private static void saveArrayListToConfig(final Plugin main, final List<String> lines) {
-        try {
-            final BufferedWriter fw = Files.newBufferedWriter(new File(getFilePath(main, "config.yml")).toPath(), StandardCharsets.UTF_8);
+        try (BufferedWriter writer = Files.newBufferedWriter(
+                new File(getFilePath(main, "config.yml")).toPath(), StandardCharsets.UTF_8)) {
             for (final String line : lines) {
-                fw.write(line + System.lineSeparator());
+                writer.write(line);
+                writer.newLine();
             }
-            fw.close();
-        } catch (final IOException ioException) {
-            ioException.printStackTrace();
+        } catch (final IOException exception) {
+            main.getLogger().log(java.util.logging.Level.WARNING, "Could not write config.yml", exception);
         }
     }
 
@@ -141,9 +149,10 @@ public final class ConfigUpdater {
     public static void updateConfig() {
         final ChestSortPlugin main = ChestSortPlugin.getInstance();
         final Logger logger = main.getLogger();
-        debug(logger, "Newest config version  = " + getNewConfigVersion());
+        long newConfigVersion = getNewConfigVersion();
+        debug(logger, "Newest config version  = " + newConfigVersion);
         debug(logger, "Current config version = " + main.getConfig().getLong(Config.CONFIG_VERSION));
-        if (main.getConfig().getLong(Config.CONFIG_VERSION) >= getNewConfigVersion()) {
+        if (main.getConfig().getLong(Config.CONFIG_VERSION) >= newConfigVersion) {
             debug(logger, "The config currently used has an equal or newer version than the one shipped with this release.");
             return;
         }
@@ -151,7 +160,7 @@ public final class ConfigUpdater {
         logger.info("===========================================");
         logger.info("You are using an outdated config file.");
         logger.info("Your config file will now be updated to the");
-        logger.info("newest version. You changes will be kept.");
+        logger.info("newest version. Your changes will be kept.");
         logger.info("===========================================");
 
         // hotkeys has been renamed to sorting-hotkeys
@@ -167,7 +176,10 @@ public final class ConfigUpdater {
             main.getConfig().set("allow-sorting-hotkeys",main.getConfig().getBoolean("allow-hotkeys"));
         }
 
-        backupCurrentConfig(main);
+        if (!backupCurrentConfig(main)) {
+            logger.warning("Config update aborted because the current config could not be backed up.");
+            return;
+        }
         main.saveDefaultConfig();
 
         final Set<String> oldConfigNodes = main.getConfig().getKeys(false);
@@ -218,7 +230,11 @@ public final class ConfigUpdater {
                     if (defaultLine.startsWith(node + ":")) {
                         // This key from the old file matches this line from the new file! Updating...
                         final String quotes = getQuotes(node);
-                        String value = main.getConfig().get(node).toString();
+                        Object configuredValue = main.getConfig().get(node);
+                        if (configuredValue == null) {
+                            continue;
+                        }
+                        String value = configuredValue.toString();
 
                         // The hologram text needs special escaping for the newline symbols
                         //if (node.equals("hologram-text")) {

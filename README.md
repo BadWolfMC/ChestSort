@@ -1,6 +1,6 @@
 # ChestSort
 
-1.8 to 1.19.3 compatible Minecraft-/Spigot-Plugin to allow automatic chest and inventory sorting.
+Modernized fork targeting Paper 26.2 and Java 25, providing automatic chest and inventory sorting.
 
 ## Download & more information
 
@@ -12,9 +12,15 @@ https://www.spigotmc.org/resources/1-13-chestsort.59773/
 
 If you want to use ChestSort as dependency for your own plugin, you can use our public maven repository. More information can be found in the [API documentation](https://github.com/JEFF-Media-GbR/Spigot-ChestSort/blob/master/HOW_TO_USE_API.md).
 
-## Building .jar file
+## Building the JAR
 
-~~To build the .jar file, you will need maven. Also, the CrackShot library is in no public repository, so please create a directory called `lib` and put the latest CrackShot.jar file [(available here)](https://www.spigotmc.org/resources/crackshot-guns.48301/) inside it.~~ (Not required as of ChestSort 9.6.0+)
+ChestSort requires JDK 25 and Maven. Run:
+
+```bash
+mvn --batch-mode verify
+```
+
+The distributable JAR is written to `target/ChestSort-<version>.jar`.
 
 ## API
 

@@ -43,7 +43,7 @@ public class Placeholders extends PlaceholderExpansion {
      */
     @Override
     public String getAuthor(){
-        return main.getDescription().getAuthors().toString();
+        return String.join(", ", main.getPluginMeta().getAuthors());
     }
 
     /**
@@ -70,7 +70,7 @@ public class Placeholders extends PlaceholderExpansion {
      */
     @Override
     public String getVersion(){
-        return main.getDescription().getVersion();
+        return main.getPluginMeta().getVersion();
     }
 
     @Override

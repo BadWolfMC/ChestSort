@@ -2,13 +2,13 @@ package de.jeff_media.chestsort.commands;
 
 import de.jeff_media.chestsort.ChestSortPlugin;
 import org.bukkit.Bukkit;
-import org.bukkit.NamespacedKey;
-import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.Locale;
 
 public class AdminCommand implements CommandExecutor {
 
@@ -34,7 +34,7 @@ public class AdminCommand implements CommandExecutor {
             return true;
         }
 
-        switch(args[0].toLowerCase()) {
+        switch(args[0].toLowerCase(Locale.ROOT)) {
             case "reset":
                 reset(sender, args);
                 break;
@@ -61,20 +61,20 @@ public class AdminCommand implements CommandExecutor {
         plugin.unregisterPlayer(player);
 
         String[] tags = new String[] {
-                "sortingEnabled",
-                "invSortingEnabled",
-                "leftClick",
-                "rightClick",
-                "shiftClick",
-                "doubleClick",
-                "middleClick",
-                "shiftRightClick",
-                "leftClickOutside",
-                "hasSeenMessage"
+                "sorting_enabled",
+                "inv_sorting_enabled",
+                "left_click",
+                "right_click",
+                "shift_click",
+                "double_click",
+                "middle_click",
+                "shift_right_click",
+                "left_click_outside",
+                "has_seen_message"
         };
 
         for(String nbtTag : tags) {
-            player.getPersistentDataContainer().remove(new NamespacedKey(plugin, nbtTag));
+            player.getPersistentDataContainer().remove(plugin.getPlayerSettingsKey(nbtTag));
         }
 
         sender.sendMessage("Reset hotkey settings for player "+player.getName());
